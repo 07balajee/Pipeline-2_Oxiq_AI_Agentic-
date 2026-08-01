@@ -1,0 +1,23 @@
+from enum import Enum
+
+class EventTypes(str, Enum):
+    """
+    Type-safe Python enum representing all system events generated in Pipeline-2.
+    """
+    CANDIDATE_SHORTLISTED = "CandidateShortlisted"
+    INTERVIEW_CREATED = "InterviewCreated"
+    INTERVIEW_RESCHEDULED = "InterviewRescheduled"
+    INTERVIEW_CANCELLED = "InterviewCancelled"
+    INTERVIEW_STARTED = "InterviewStarted"
+    TECHNICAL_SCORE_SUBMITTED = "TechnicalScoreSubmitted"
+    TRIGGER_HR_ROUND = "TriggerHRRound"
+    HR_SCORE_SUBMITTED = "HRScoreSubmitted"
+    CANDIDATE_RANKED = "CandidateRanked"
+    CANDIDATE_SELECTED = "CandidateSelected"
+    CANDIDATE_REJECTED = "CandidateRejected"
+    CANDIDATE_WAITLISTED = "CandidateWaitlisted"
+    OFFER_REQUESTED = "OfferRequested"
+    WORKFLOW_PAUSED = "WorkflowPaused"
+    WORKFLOW_RESUMED = "WorkflowResumed"
+    WORKFLOW_FAILED = "WorkflowFailed"
+    RETRY_REQUESTED = "RetryRequested"
