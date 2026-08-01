@@ -138,10 +138,10 @@ The Master Agent processes events sequentially using this logical cycle:
 2.  **Retrieve Context:** Query candidate background and interview history.
 3.  **Validate Context:** Ensure candidate details are consistent.
 4.  **Determine States:** Map current state to target next state.
-5.  **Select Agent/Tools:** Identify worker agent and allowed MCP tools.
+5.  **Select Agent/Tools:** Identify worker agent's target API endpoint and allowed MCP tools.
 6.  **Validate Preconditions:** Verify prerequisite tasks are completed.
-7.  **Invoke Agent:** Send validation parameters and trigger worker task.
-8.  **Process Output:** Parse results, write to database, and transition state.
+7.  **Invoke Agent:** Send the serialized `WorkflowContext` payload via HTTP POST to the target worker's FastAPI endpoint (`/agents/agent{N}/execute`). The worker service runs its local LangGraph logic and returns the `AgentResponse`.
+8.  **Process Output:** Parse the HTTP response, run `ResponseValidator` validation rules on the returned `AgentResponse`, write status modifications to database via Database MCP, and transition state.
 
 ---
 

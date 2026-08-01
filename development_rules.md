@@ -52,18 +52,22 @@ All contributions must adhere to the following principles:
 
 ---
 
-## 5.  Agent Development Rules
+## 5.  Agent Development & Service Isolation Rules
 
 Every sub-agent (A6, A7, A8) must comply with these guidelines:
 
 1.  **Single Duty Focus:** Sub-agents must execute their single assigned task (e.g., scheduling an interview or scoring a transcript) and exit. They must not manage routing or direct other agents.
 2.  **Strict Statelessness:** Agents must not store context locally or rely on in-memory history between execution runs.
 3.  **Context-Driven Execution:** All inputs, profile values, and criteria parameters must be passed directly to the worker by the Master Agent.
-4.  **No Peer Calls:** Worker agents must never import, instantiate, or invoke another worker agent.
-5.  **No Direct APIs:** Worker agents must not call external APIs directly. All connections (e.g., Google Calendar, Slack notifications) must route through an MCP server tool.
-6.  **Structured Returns:** Worker outputs must return validated Pydantic models defined in `schemas/`.
+4.  **Forbidden Worker Imports:** Worker services cannot import other worker services. The Master Agent **must not** import any worker implementation classes. Communication must proceed strictly via FastAPI HTTP boundaries using Pydantic JSON serialization contracts.
+5.  **No Direct APIs:** Worker agents must not call external APIs directly. All connections (e.g., Google Calendar, Slack notifications) must route through an MCP server tool adapter.
+6.  **Structured HTTP Returns:** Worker outputs must return validated Pydantic models defined in `schemas/`.
 7.  **Fault Tolerance:** Implement retry mechanisms and error handling, returning clean failure records to the Master Agent instead of crashing.
 8.  **Trace Logging:** Every agent step, tool call, and completion state must emit structured logs.
+9.  **Single-Purpose LangGraph Nodes:** Nodes inside a LangGraph workflow should be scoped to a single logical operation, mirroring the reference scheduler steps.
+10. **Preserve Determinism (No Replacing Logic with LLMs):** Keep business rules deterministic. Standard Pydantic validations, database constraints, scoring formulas, hard eligibility filters, idempotency matching, and retry counters must remain standard python code. LangChain/LLM calls must only be used where reasoning, synthesis, or interpretation is required.
+11. **Transport vs. Business Error Isolation:** Transport failures (e.g., HTTP 503/504) must be handled differently from business failures (HTTP 200 with `execution_status="FAILED"`).
+12. **Backward Compatibility:** All schemas and validation engines must remain backward compatible with Phase 4 baseline tests during migration.
 
 ---
 

@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     smtp_password: str = "mock-password"
     smtp_from_email: str = "recruitment@oxiqai.com"
 
+    # Distributed Worker Agent Service URLs
+    agent6_service_url: str = "http://127.0.0.1:8001"
+    agent7_service_url: str = "http://127.0.0.1:8002"
+    agent8_service_url: str = "http://127.0.0.1:8003"
+    
+    agent_http_timeout_seconds: float = 30.0
+
     # Configuration loading rules
     model_config = SettingsConfigDict(
         env_file=".env",

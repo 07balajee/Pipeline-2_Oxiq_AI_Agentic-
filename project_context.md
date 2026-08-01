@@ -77,14 +77,18 @@ To maintain loose coupling and architectural stability, the boundaries of develo
 
 ## 4. Current Development Status
 
-The platform core and reference workers are fully established. We are currently in **Phase 4: Worker Agent Parallel Development**. 
+The platform core and reference workers are fully established. We are currently in **Phase 5: Architecture Re-Freeze** to support a distributed, FastAPI-connected agent communication framework orchestrated by **LangGraph + LangChain**.
+
+### Migration Direction
+Pipeline-2 is migrating from in-process python worker execution to:
+`Master Agent LangGraph` -> `FastAPI / HTTP` -> `Worker Agent LangGraph`
+
+*   **Behavioral Reference Baseline:** The Phase 4 core business logic, matching heuristics, and database mock setups are fully functional and serve as our verified reference baseline (37 tests green). The existing code is the source of truth for agent behavior and is being adapted (not replaced or rewritten) to run as isolated services.
 
 ### Completed Milestones
 *   **Phase 1 & 2 (Foundations & Contracts):** Repository structure, development guidelines, team code ownership policies, and core Pydantic schemas are fully frozen.
 *   **Phase 3 (Master Agent Orchestration):** The orchestrator skeleton, Event Bus, State Manager, and dynamic Registries (Agent/Tool) are fully operational.
-*   **Phase 4 Step 1 (Agent 6 Decision Intelligence):** Deterministic interviewer filtering/ranking, mode determination, availability selection, and slot matching are fully complete.
-*   **Phase 4 Step 2 (Agent 6 Hardening):** Resiliency loops, retry classification, Online-to-Offline fallback with Human-in-the-Loop checkpoints, idempotency keying, database transaction rollback compensation, and degraded resume mode are completed.
-*   **Phase 4 Step 3 (Contract Freeze):** Agent 6 has been audited and frozen as the official reference implementation. Lightweight contract tests have been introduced.
+*   **Phase 4 (Agent 6 Implementation & Hardening):** Decision intelligence heuristics, slot ranking, online-to-offline fallback, idempotency checkpoints, transaction rollbacks, and contract freeze are complete (30 regression tests passing).
 
 ---
 
@@ -212,8 +216,9 @@ Before performing any implementation work, every developer or AI coding CLI ente
     *   `folder_structure.md`
 2.  Inspect the existing Master Agent interfaces and Agent 6 only to understand the established worker-agent pattern.
 3.  **Run the baseline checks:**
+4.  **Current state:** Master Agent and Agent 6 are fully orchestrated using Compiled LangGraph and exposed via HTTP FastAPI service boundaries.
     ```bash
     PYTHONPATH=. python3 -m pytest tests/ -v
     ```
-    Confirm that all 37 tests pass. If baseline tests fail, do not start worker implementation.
-4.  **Confirm your understanding** of your assigned agent, file permissions, input/output events, and MCP boundaries to the coordinator before writing any code.
+    Confirm that all 76 tests pass. If baseline tests fail, do not start worker implementation.
+5.  **Confirm your understanding** of your assigned agent, file permissions, input/output events, and MCP boundaries to the coordinator before writing any code.

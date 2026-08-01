@@ -21,10 +21,9 @@ The Pipeline-2 project features a three-member core team and a developer slot re
 
 | Developer | Primary Responsibility | Owned Component | Owned Branch | Review Responsibility | Integration Responsibility |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Neemay Gupta** | System Lead, Orchestration & Handoffs | Master Agent, Architecture, Project Structure, Workflows | `feature/master-agent` | `contracts/`, `schemas/`, `shared/` | Repository Coordination, Handoffs, Final Merge to `main` |
-| **[TBD / Placeholder]** | Scheduling Workflows | Agent 6 (Interview Invitation) | `feature/agent6` | Prompting & Scheduling Tools | Handoff to Master Agent |
-| **Piyush** | Technical Assessment Processing | Agent 7 (Technical Interview) | `feature/agent7` | Scorecard Parsers & Prompts | Handoff to Master Agent |
-| **Haris** | HR Evaluation & Candidate Sorting | Agent 8 (HR Assessment & Re-ranking) | `feature/agent8` | Soft Skills evaluation & Sorting | Handoff to Master Agent |
+| **Neemay Gupta** | Master Agent Migration, Agent 6 Reference Migration, API Contracts | Master Agent, Agent 6 Reference, Architecture, API Schema | `feature/master-migration` | `contracts/`, `schemas/`, `shared/` | Reference Architecture Setup, E2E Integration, Final Merge |
+| **Piyush** | Agent 7 Migration | Agent 7 (Technical Interview) | `feature/agent7-migration` | Scorecard Parsers & Prompts | Local Agent 7 LangGraph execution |
+| **Haris** | Agent 8 Migration | Agent 8 (HR Assessment & Re-ranking) | `feature/agent8-migration` | Soft Skills evaluation & Sorting | Local Agent 8 LangGraph execution |
 
 ---
 
@@ -111,22 +110,25 @@ All code additions must follow the structured PR process:
 -   **Contract Immutability:** No changes can be made to the contracts (`contracts/`, `schemas/`, `database_contracts.md`, etc.) without review and sign-off.
 -   **Proactive Communication:** Notify teammates of changes to shared libraries or helper tools in `shared/` before committing.
 -   **Documentation-First:** Update architecture documents and blueprints prior to committing any structural changes to code files.
--   **Agent 7 Developer Isolation (Piyush):** May modify only files under `agents/agent7/**` and related tests. Must not modify the Master Agent or shared resources.
--   **Agent 8 Developer Isolation (Haris):** May modify only files under `agents/agent8/**` and related tests. Must not modify the Master Agent or shared resources.
+-   **Agent 7 Developer Isolation (Piyush):** May modify only files under `agents/agent7/**` and related tests. Must not begin coding or defining FastAPI/LangGraph patterns until the Agent 6 Reference Architecture (Phase 5.8) is frozen.
+-   **Agent 8 Developer Isolation (Haris):** May modify only files under `agents/agent8/**` and related tests. Must not begin coding or defining FastAPI/LangGraph patterns until the Agent 6 Reference Architecture (Phase 5.8) is frozen.
 -   **Master Agent & Shared Contract Stability:** The Master Agent and shared schemas must NOT be modified by worker-agent branches unless an incompatibility is formally identified, reviewed, and approved by the system lead (Neemay Gupta).
 
 ---
 
-## 8. Integration Strategy
+## 8. Integration Strategy (Phase 5 Migration Roadmap)
 
-Pipeline-2 integration is scheduled sequentially to ease debugging:
+The migration to the LangGraph + FastAPI architecture is scheduled sequentially to guarantee that baseline functionality is preserved at each step:
 
-1.  **Phase A (Master Agent):** Establish the orchestration skeleton and endpoints.
-2.  **Phase B (Scheduling Integration):** Connect Agent 6 to the Master Agent to verify calendar scheduling.
-3.  **Phase C (Technical Evaluation Integration):** Integrate Agent 7 to verify scorecard parsing.
-4.  **Phase D (HR & Ranking Integration):** Integrate Agent 8 to verify evaluation scoring and sorting logic.
-5.  **Phase E (MCP Servers Integration):** Connect database and external utility MCP tools.
-6.  **Phase F (E2E Validation):** Run end-to-end simulation tests once all modules are integrated.
+1.  **Phase 5.0 (Architecture Re-Freeze):** Update all design documents and compile `api_contracts.md`. No code changes.
+2.  **Phase 5.1 (Agent 6 FastAPI Service Boundary):** Wrap the existing Agent 6 implementation inside a FastAPI service, verifying HTTP request/response capability without modifying internal business logic.
+3.  **Phase 5.2 (Master HTTP Dispatcher):** Implement an HTTP Agent Client within the Master Agent, replacing direct python execution of Agent 6 with HTTP calls to `agent6_api`.
+4.  **Phase 5.3 (Master LangGraph Migration):** Migrate Master Agent orchestration state routing to LangGraph, integrating thread interrupts for HITL pause/resume and wrapping `WorkflowContext` as inner Graph State.
+5.  **Phase 5.4 (Agent 6 LangGraph Migration):** Migrate the local Agent 6 scheduling steps into a local LangGraph workflow.
+6.  **Phase 5.5 (Selective LangChain / LLM Integration):** Integrate LangChain/LLM reasoning only where evaluation or text synthesis requires it.
+7.  **Phase 5.6 (Distributed Retry / Fallback / HITL Hardening):** Hardening Level 1 (operational) and Level 2 (workflow) error recovery and distributed transaction compensation.
+8.  **Phase 5.7 (API + Graph + Integration Testing):** Fully migrate the 37 regression tests to cover service endpoints and graph nodes.
+9.  **Phase 5.8 (Freeze New Reference Architecture):** Establish the final new reference design. Only after this milestone should Piyush and Haris begin Agent 7 and Agent 8 migrations.
 
 ---
 

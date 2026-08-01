@@ -126,7 +126,7 @@ All agents (Master, A6, A7, A8) must comply with these guidelines:
 
 ## 8. Agent Input Contract
 
-Every worker agent (A6, A7, A8) must accept the standardized `WorkflowContext` class (Pydantic model) containing:
+Every worker agent (A6, A7, A8) must accept the standardized `WorkflowContext` class (Pydantic model) transmitted as a JSON request body over HTTP (`POST /agents/agent{N}/execute`) containing:
 -   **`workflow_id`:** Unique identifier / trace correlation ID of the pipeline run (`context.workflow_id`).
 -   **`candidate`:** Nested candidate profile data object (`context.candidate`):
     - `candidate_id` (Required)
@@ -146,7 +146,7 @@ Every worker agent (A6, A7, A8) must accept the standardized `WorkflowContext` c
 
 ## 9. Agent Output Contract
 
-Every agent must return a standardized output payload schema containing:
+Every agent must return a standardized output payload schema (`AgentResponse` Pydantic model) serialized as a JSON response body over HTTP (HTTP 200 OK) containing:
 -   **`execution_status`:** `SUCCESS` or `FAILED` string.
 -   **`generated_event`:** State machine completion event name (String).
 -   **`updated_state`:** Target next state flag (String).
@@ -155,6 +155,8 @@ Every agent must return a standardized output payload schema containing:
 -   **`warnings`:** Standardized list of warnings, if applicable.
 -   **`suggested_action`:** Next execution recommendation.
 -   **`metadata`:** Diagnostic details (e.g., token usage, duration, trace ID).
+
+Both schemas are serialized and validated at endpoint boundaries using standard Pydantic models. Any serialization conflict must be escalated to the systems lead before code modifications are made.
 
 ---
 

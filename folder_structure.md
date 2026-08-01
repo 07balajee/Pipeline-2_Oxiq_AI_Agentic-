@@ -14,9 +14,12 @@ The repository layout is frozen prior to execution to establish a consistent cod
 
 ---
 
-## 2. Repository Tree
+### 2. Target Repository Tree (Migration Specification)
 
-Below is the frozen layout of the **Pipeline-2** codebase:
+Below is the planned target layout of the **Pipeline-2** codebase to support distributed FastAPI microservices and LangGraph graphs. 
+
+> [!NOTE]
+> During Phase 5.0, these folders are documented as target paths only and must NOT be created physically.
 
 ```
 Pipeline-2/
@@ -24,6 +27,7 @@ Pipeline-2/
 ├── README.md                 # Project landing page and onboarding portal
 ├── project_context.md        # Global boundaries and system rules
 ├── architecture.md           # HLD, topology, and flow transitions
+├── api_contracts.md          # Authoritative Master/Worker HTTP API contracts
 ├── folder_structure.md       # Directory layout and path rules (this file)
 ├── team_roles.md             # Code ownership and merge access permissions
 ├── development_rules.md      # Coding style, branches, and PR checklists
@@ -33,25 +37,31 @@ Pipeline-2/
 ├── agent_contracts.md        # Worker-specific triggers, duties, and APIs
 ├── master_agent.md           # Orchestrator routing loops and state trees
 │
-├── agents/                   # Python agent modules
-│   ├── master/               # Master orchestrator runtime
+├── services/                 # FastAPI Service Boundary Controllers (Planned)
+│   ├── master_api/           # Entry point and API routes for Master Agent
+│   ├── agent6_api/           # HTTP API wrappers for Agent 6 Scheduling
+│   ├── agent7_api/           # HTTP API wrappers for Agent 7 Tech Assessment
+│   └── agent8_api/           # HTTP API wrappers for Agent 8 HR Re-ranking
+│
+├── agents/                   # LangGraph and LLM Orchestration logic
+│   ├── master/               # Master orchestrator graphs and nodes
+│   │   └── graph/            # Master state-machine LangGraph flow
 │   ├── agent6/               # Invitation & scheduling worker
+│   │   └── graph/            # Scheduling LangGraph local execution nodes
 │   ├── agent7/               # Technical scorecard evaluator
+│   │   └── graph/            # Scoring assessment LangGraph nodes
 │   └── agent8/               # HR evaluator and ranking compiler
+│       └── graph/            # Re-ranking calculation LangGraph nodes
 │
 ├── contracts/                # Executable interface declarations (JSON/YAML/code)
 ├── prompts/                  # System and user prompt templates (.txt/.json)
 ├── schemas/                  # Pydantic validation models
 ├── mcp/                      # Custom MCP server scripts and drivers
 ├── shared/                   # Common helper code, logs, and exceptions
+│   ├── clients/              # Reusable clients (e.g. Agent Client HTTP helper)
+│   └── config/               # Settings and constants
 ├── tests/                    # Unit, integration, and mock suites
-├── docs/                     # Visual design charts and meeting notes
-│
-├── pyproject.toml            # Poetry / Python build configuration
-├── requirements.txt          # Direct dependencies manifest
-├── .gitignore                # Target file ignore configurations
 └── .env.example              # Local environment configuration template
-```
 
 ---
 
@@ -62,6 +72,7 @@ Pipeline-2/
 | **README.md** | Repository intro, pipeline phases, and quick setup instructions. | Setup changes, new dependencies. | Shared |
 | **project_context.md** | High-level system goals, scope limits, and stack specifications. | Changes to system architecture phases. | Shared |
 | **architecture.md** | Central design, topology, state models, and HLD boundaries. | Changes in system topology. | Shared |
+| **api_contracts.md** | Authoritative Master/Worker HTTP API contracts. | Endpoint changes, schema additions. | Neemay Gupta |
 | **folder_structure.md** | File paths, folder blueprints, and structure rules. | Restructuring directory namespaces. | Shared |
 | **team_roles.md** | Code owners, branch rights, and PR sign-off assignments. | Team restructuring or new assignments. | Neemay Gupta |
 | **development_rules.md** | Naming styles, Git standards, and testing policies. | Changes in linting or branch limits. | Neemay Gupta |

@@ -17,3 +17,7 @@ pytest-asyncio>=0.23.5,<0.24.0
 black>=24.2.0,<25.0.0
 isort>=5.13.2,<6.0.0
 mypy>=1.9.0,<2.0.0
+
+# Orchestration
+langgraph>=1.2.9,<2.0.0
+langchain-core>=1.4.9,<2.0.0

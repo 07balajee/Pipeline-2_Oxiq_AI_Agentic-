@@ -1,6 +1,6 @@
 import time
 import uuid
-from typing import Dict
+from typing import Dict, Any
 from schemas.workflow_state import WorkflowStateModel
 from shared.config.constants import (
     STATE_CANDIDATE_SHORTLISTED,
@@ -26,11 +26,12 @@ from agents.master.validator import Validator
 from agents.master.orchestrator import (
     Timeline, EventStore, ApprovalEngine, RetryEngine, FallbackEngine, ResponseValidator, ContextManager, WorkflowEngine
 )
+from agents.master.graph import compile_workflow_graph
 
 class MasterAgent:
     """
-    The orchestrator of Pipeline-2. Upgraded to support advanced workflow state management,
-    modular event store logging, human approval pause gates, retries, and fallback paths.
+    The orchestrator facade of Pipeline-2. Re-engineered to delegate candidate workflow routing,
+    worker agent dispatches, retry schedules, and validation sequences to a Compiled LangGraph.
     """
     def __init__(self):
         self.router = Router()
@@ -51,6 +52,9 @@ class MasterAgent:
         self.active_traces: Dict[str, WorkflowTrace] = {}
         self.active_timelines: Dict[str, Timeline] = {}
         
+        # Compile LangGraph app
+        self.graph = compile_workflow_graph()
+        
         self._subscribe_events()
 
     def _subscribe_events(self):
@@ -59,6 +63,27 @@ class MasterAgent:
         """
         for event_type in EventTypes:
             event_bus.subscribe(event_type.value, self.handle_event)
+
+    def _build_graph_config(self, workflow_id: str) -> dict:
+        """
+        Constructs the dependency injection dictionary for LangGraph nodes.
+        """
+        return {
+            "configurable": {
+                "thread_id": workflow_id,
+                "state_manager": state_manager,
+                "workflow_engine": self.workflow_engine,
+                "context_manager": self.context_manager,
+                "dispatcher": self.dispatcher,
+                "response_validator": self.response_validator,
+                "retry_engine": self.retry_engine,
+                "fallback_engine": self.fallback_engine,
+                "approval_engine": self.approval_engine,
+                "event_store": self.event_store,
+                "timeline": self.active_timelines[workflow_id],
+                "trace": self.active_traces[workflow_id]
+            }
+        }
 
     def start_workflow(self, candidate_data: dict, job_data: dict, metadata: dict = None) -> str:
         """
@@ -156,6 +181,8 @@ class MasterAgent:
         self.event_store.log_event(event, "Executing")
         timeline.add_milestone(f"Event Received: {event.name}")
 
+        config = self._build_graph_config(workflow_id)
+
         # Check approval resume case
         if event.name == "WorkflowResumed":
             self.event_store.log_event(event, "Completed")
@@ -163,128 +190,82 @@ class MasterAgent:
             paused_approval = context.metadata.pop("paused_on_approval", None)
             
             if pending_next_state:
-                context.previous_state = context.current_state
-                context.current_state = pending_next_state
-                state_manager.update_state(workflow_id, pending_next_state, current_step="Process_WorkflowResumed")
-                timeline.add_milestone(f"Human Approval Granted: {paused_approval}")
-                timeline.add_milestone(f"Workflow Resumed to State: {pending_next_state}")
+                context.metadata["pending_next_state"] = pending_next_state
+                context.metadata["paused_on_approval"] = paused_approval
                 
-                # Check for handoff transitions on resume
+                # Checkpoint resume path
+                self.graph.update_state(config, {
+                    "workflow_context": context,
+                    "incoming_event": event.name,
+                    "event_payload": event.payload
+                })
+                
+                final_state = self.graph.invoke(None, config)
+                if final_state and "workflow_context" in final_state:
+                    self.active_contexts[workflow_id] = final_state["workflow_context"]
+                
+                # Trigger completion handoff on resume
                 if pending_next_state == STATE_OFFER_PIPELINE_TRIGGERED:
                     self.complete_workflow(workflow_id, trace, timeline)
                 return
 
         # Check if the workflow is currently suspended in paused or failed state
-        if state.current_state in [STATE_WORKFLOW_PAUSED, STATE_WORKFLOW_FAILED] and event.name != "WorkflowResumed":
+        if state.current_state in [STATE_WORKFLOW_PAUSED, STATE_WORKFLOW_FAILED] and event.name != "WorkflowResumed" and event.name != "RetryRequested":
             workflow_logger.info(
                 f"Workflow {workflow_id} is currently suspended in '{state.current_state}'. Ignoring event {event.name}.",
                 trace_id=workflow_id
             )
             return
 
-        # 1. Context Merging & Preparation
-        self.context_manager.prepare_execution_context(context, event)
+        # Check if the graph is currently suspended/interrupted on human_approval_node thread
+        thread_state = self.graph.get_state(config)
 
-        # 2. Routing transition check via WorkflowEngine
-        start_time = time.time()
-        next_state, target_agent = self.workflow_engine.resolve_next_step(context, event.name)
-        duration_ms = (time.time() - start_time) * 1000
-        
-        trace.add_step(
-            actor="MasterAgent",
-            action=f"RouteStateFrom_{context.current_state}_Via_{event.name}",
-            status="SUCCESS",
-            duration_ms=duration_ms,
-            input_payload={"event": event.name, "current_state": context.current_state},
-            output_payload={"next_state": next_state, "target_agent": target_agent}
-        )
-
-        # 3. Human Approval check before proceeding to next state
-        if self.approval_engine.should_pause_for_approval(context.current_state, next_state, context):
-            approval_type = self.approval_engine.process_approval(context.current_state, next_state, context)
-            timeline.add_milestone(f"Workflow Paused on Approval: {approval_type}")
-            self.event_store.log_event(event, "Completed")
-            return
-
-        # Process standard state shift
-        context.previous_state = context.current_state
-        context.current_state = next_state
-        state_manager.update_state(workflow_id, next_state, current_step=f"Process_{event.name}")
-        timeline.add_milestone(f"State transitioned: {context.previous_state} -> {next_state}")
-
-        # 4. Invoke Worker Agent if target exists
-        if target_agent:
-            agent_start = time.time()
-            timeline.add_milestone(f"Invoking Worker Agent: {target_agent}")
-            try:
-                response = self.dispatcher.dispatch(target_agent, context)
-                agent_duration = (time.time() - agent_start) * 1000
-                state_manager.accumulate_time(workflow_id, agent_duration / 1000.0)
-                
-                # Response schema validation using ResponseValidator
-                is_valid, validation_errors = self.response_validator.validate_response(target_agent, response)
-                
-                if not is_valid:
-                    self.event_store.log_event(event, "Failed")
-                    trace.add_step(
-                        actor=target_agent,
-                        action="RunTask",
-                        status="FAILED",
-                        duration_ms=agent_duration,
-                        input_payload={"context_state": context.previous_state},
-                        output_payload={"errors": validation_errors}
-                    )
-                    self.handle_agent_failure(workflow_id, target_agent, validation_errors)
-                    return
-
-                trace.add_step(
-                    actor=target_agent,
-                    action="RunTask",
-                    status=response.execution_status,
-                    duration_ms=agent_duration,
-                    input_payload={"context_state": context.previous_state},
-                    output_payload=response.model_dump()
-                )
-
-                if response.execution_status == "SUCCESS":
-                    self.event_store.log_event(event, "Completed")
-                    self.retry_engine.reset_retry_count(context)
-                    timeline.add_milestone(f"Agent {target_agent} completed successfully")
-                    
-                    if response.generated_event:
-                        next_event = BaseEvent(
-                            name=response.generated_event,
-                            candidate_id=context.candidate.candidate_id,
-                            payload=response.metadata
-                        )
-                        self.event_store.log_event(next_event, "Created")
-                        event_bus.publish(next_event)
-                else:
-                    self.event_store.log_event(event, "Failed")
-                    self.handle_agent_failure(workflow_id, target_agent, response.errors)
-                    
-            except Exception as e:
-                self.event_store.log_event(event, "Failed")
-                agent_duration = (time.time() - agent_start) * 1000
-                error_logger.error(f"Execution crash in agent {target_agent}: {str(e)}", trace_id=workflow_id, error=e)
-                trace.add_step(
-                    actor=target_agent,
-                    action="RunTask",
-                    status="FAILED",
-                    duration_ms=agent_duration,
-                    output_payload={"error": str(e)}
-                )
-                self.handle_agent_failure(workflow_id, target_agent, [str(e)])
+        if thread_state and thread_state.next:
+            # Update state variables on suspended thread and resume
+            self.graph.update_state(config, {
+                "workflow_context": context,
+                "incoming_event": event.name,
+                "event_payload": event.payload,
+                "target_agent": None,
+                "next_state": None,
+                "agent_response": None,
+                "transport_error": None
+            })
+            final_state = self.graph.invoke(None, config)
         else:
-            # Check terminal states
+            # Start fresh invocation
+            final_state = self.graph.invoke({
+                "workflow_context": context,
+                "incoming_event": event.name,
+                "event_payload": event.payload,
+                "target_agent": None,
+                "next_state": None,
+                "agent_response": None,
+                "transport_error": None,
+                "graph_status": "RUNNING"
+            }, config)
+
+        # Sync final graph context state back to facade memory
+        if final_state and "workflow_context" in final_state:
+            self.active_contexts[workflow_id] = final_state["workflow_context"]
+
+        # Handle next event cascades
+        resp = final_state.get("agent_response")
+        if resp and resp.execution_status == "SUCCESS":
             self.event_store.log_event(event, "Completed")
+            if resp.generated_event:
+                next_event = BaseEvent(
+                    name=resp.generated_event,
+                    candidate_id=context.candidate.candidate_id,
+                    payload=resp.metadata
+                )
+                self.event_store.log_event(next_event, "Created")
+                event_bus.publish(next_event)
+        elif final_state.get("graph_status") == "WORKFLOW_COMPLETED":
+            self.event_store.log_event(event, "Completed")
+            next_state = final_state.get("next_state")
             if next_state == STATE_OFFER_PIPELINE_TRIGGERED:
                 self.complete_workflow(workflow_id, trace, timeline)
-            elif next_state == STATE_CANDIDATE_REJECTED:
-                workflow_logger.info(f"Workflow {workflow_id} reached rejection state. Candidate archived.", trace_id=workflow_id)
-                trace.final_status = "REJECTED"
-                trace.end_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-                timeline.add_milestone("Workflow ended: Candidate Rejected")
 
     def complete_workflow(self, workflow_id: str, trace: WorkflowTrace, timeline: Timeline):
         workflow_logger.info(f"Workflow {workflow_id} reached handoff state. Handing off details to Pipeline-3...", trace_id=workflow_id)
@@ -293,43 +274,142 @@ class MasterAgent:
         audit_logger.log_tool_call("Pipeline3_Handoff", "SUCCESS", 15.0, trace_id=workflow_id)
         timeline.add_milestone("Workflow completed and handed off to Pipeline-3")
 
-    def handle_agent_failure(self, workflow_id: str, agent_name: str, errors: list):
+    def get_workflow_status(self, workflow_id: str) -> dict:
         """
-        Escalation handler if worker agent tasks fail.
+        Public facade method to aggregate candidate workflow status details safely.
         """
-        context = self.active_contexts[workflow_id]
-        timeline = self.active_timelines[workflow_id]
-        
-        # Check retry count eligibility
-        if self.retry_engine.should_retry(context):
-            attempt = self.retry_engine.increment_retry_count(context)
-            timeline.add_milestone(f"Retry attempt {attempt} for agent {agent_name}")
+        context = self.active_contexts.get(workflow_id)
+        if not context:
+            raise KeyError(f"Workflow '{workflow_id}' not found.")
             
-            retry_event = BaseEvent(
-                name="RetryRequested",
-                candidate_id=context.candidate.candidate_id,
-                payload={"failed_agent": agent_name, "attempt": attempt}
-            )
-            self.event_store.log_event(retry_event, "Created")
-            event_bus.publish(retry_event)
-        else:
-            # Check fallback eligibility
-            failure_reason = ", ".join(errors)
-            if self.fallback_engine.execute_fallback(context, failure_reason):
-                timeline.add_milestone("Fallback applied: Swapped to Offline mode")
-                # Reset retries and re-dispatch step
-                self.retry_engine.reset_retry_count(context)
+        state_model = state_manager.get_state(workflow_id)
+        timeline = self.active_timelines.get(workflow_id)
+        
+        # Get graph checkpoints next execution indicators
+        config = self._build_graph_config(workflow_id)
+        thread_state = self.graph.get_state(config)
+        graph_status = "RUNNING"
+        approval_type = None
+        approval_status = None
+        
+        if thread_state:
+            if thread_state.next:
+                graph_status = "PAUSED"
+                approval_status = "PENDING"
+                approval_type = context.metadata.get("paused_on_approval") or context.metadata.get("proposed_fallback")
+            else:
+                graph_status = "COMPLETED"
+                
+        # Override with DB state if paused/failed
+        if state_model:
+            if state_model.current_state == STATE_WORKFLOW_PAUSED:
+                graph_status = "PAUSED"
+            elif state_model.current_state == STATE_WORKFLOW_FAILED:
+                graph_status = "FAILED"
+                
+        timeline_entries = timeline.get_entries() if timeline else []
+        last_error = context.metadata.get("last_execution_error")
+        
+        return {
+            "workflow_id": workflow_id,
+            "current_state": context.current_state,
+            "graph_status": graph_status,
+            "approval_status": approval_status,
+            "approval_type": approval_type,
+            "last_event": context.metadata.get("last_event_processed"),
+            "last_agent": context.metadata.get("last_agent_dispatched"),
+            "timeline": timeline_entries,
+            "step_data": context.step_data,
+            "failure": last_error
+        }
+
+    def resume_workflow(self, workflow_id: str, approval_type: str, decision: str, payload: dict | None = None) -> bool:
+        """
+        Public facade method to resume a paused workflow from HITL gates.
+        """
+        context = self.active_contexts.get(workflow_id)
+        if not context:
+            raise KeyError(f"Workflow '{workflow_id}' not found.")
+            
+        state_model = state_manager.get_state(workflow_id)
+        if not state_model:
+            raise KeyError(f"State not found for workflow '{workflow_id}'")
+            
+        # Standardize decisions
+        decision = decision.upper()
+        if decision not in ["APPROVE", "REJECT"]:
+            raise ValueError(f"Invalid resume action: {decision}")
+            
+        # Case A: SlotApproval
+        if approval_type == "SlotApproval":
+            # Verify we are actually awaiting slot approval
+            if not context.metadata.get("paused_on_approval") == "SlotApproval":
+                return False
+                
+            if decision == "APPROVE":
+                resume_event = BaseEvent(
+                    name="WorkflowResumed",
+                    candidate_id=context.candidate.candidate_id,
+                    payload=payload or {}
+                )
+                self.handle_event(resume_event)
+                return True
+            else:
+                # Record rejection and schedule retry
+                rejected = {
+                    "interviewer_id": context.step_data.get("interviewer_id"),
+                    "time_slot": context.step_data.get("scheduled_time")
+                }
+                context.metadata.setdefault("rejected_recommendations", []).append(rejected)
+                
+                # Clear previous recommendations
+                context.step_data.pop("scheduled_time", None)
+                context.step_data.pop("meeting_link", None)
+                context.step_data.pop("interviewer_id", None)
+                context.step_data.pop("interview_mode", None)
+                context.step_data.pop("packet_id", None)
+                
+                context.metadata.pop("paused_on_approval", None)
+                context.metadata.pop("pending_next_state", None)
+                
+                # Re-run recommendation invitation
                 retry_event = BaseEvent(
                     name="RetryRequested",
                     candidate_id=context.candidate.candidate_id,
-                    payload={"failed_agent": agent_name, "attempt": 0, "fallback_applied": True}
+                    payload={"failed_agent": "agent6", "attempt": 0}
                 )
-                self.event_store.log_event(retry_event, "Created")
-                event_bus.publish(retry_event)
+                self.handle_event(retry_event)
+                return True
+                
+        # Case B: OfflineFallback
+        elif approval_type == "Offline Interview":
+            if not context.metadata.get("proposed_fallback") == "Offline Interview":
+                return False
+                
+            if decision == "APPROVE":
+                context.step_data["interview_mode"] = "Offline"
+                context.metadata["interview_mode"] = "Offline"
+                context.step_data["meeting_link"] = None
+                
+                context.metadata.pop("proposed_fallback", None)
+                context.metadata.pop("failure_reason", None)
+                context.metadata.pop("fallback_applied", None)
+                
+                context.current_state = "InterviewScheduling"
+                context.previous_state = "WorkflowPaused"
+                state_manager.update_state(workflow_id, "InterviewScheduling", current_step="Process_FallbackApproved")
+                
+                self.retry_engine.reset_retry_count(context)
+                
+                retry_event = BaseEvent(
+                    name="RetryRequested",
+                    candidate_id=context.candidate.candidate_id,
+                    payload={"failed_agent": "agent6", "attempt": 0, "fallback_applied": True}
+                )
+                self.handle_event(retry_event)
+                return True
             else:
-                # Exhausted. Mark paused/failed
-                workflow_logger.logger.error(f"Workflow {workflow_id} failed. Placing in paused state.")
-                state_manager.update_state(workflow_id, STATE_WORKFLOW_PAUSED, current_step=f"Error_{agent_name}_Paused")
-                trace = self.active_traces[workflow_id]
-                trace.final_status = "PAUSED"
-                timeline.add_milestone(f"Retries exhausted. Workflow paused.")
+                # Rejected fallback leaves workflow paused
+                return False
+                
+        return False

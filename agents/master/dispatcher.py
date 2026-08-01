@@ -25,14 +25,32 @@ class Dispatcher:
         start_time = time.time()
         
         try:
-            # 1. Fetch class definition from registry
-            agent_class = agent_registry.get_agent(agent_name)
-            
-            # 2. Instantiate worker agent
-            agent_instance = agent_class()
-            
-            # 3. Execute work context
-            response = agent_instance.run(context)
+            from shared.config.settings import settings
+            from shared.clients.agent_client import AgentServiceClient
+            from shared.config.constants import AGENT_INVITATION
+
+            # Check if agent is registered locally in registry (primarily for unit test environment)
+            is_local = False
+            try:
+                agent_class = agent_registry.get_agent(agent_name)
+                is_local = True
+            except KeyError:
+                pass
+
+            if agent_name == AGENT_INVITATION and not is_local:
+                # 1. Initialize HTTP Client with settings config
+                client = AgentServiceClient(
+                    service_url=settings.agent6_service_url,
+                    timeout=settings.agent_http_timeout_seconds
+                )
+                # 2. Invoke remote microservice endpoint
+                response = client.execute(context, agent_name=agent_name)
+            else:
+                # Fall back to legacy registry dispatch (for mock Agent 7, Agent 8, or local unit tests)
+                if not is_local:
+                    agent_class = agent_registry.get_agent(agent_name)
+                agent_instance = agent_class()
+                response = agent_instance.run(context)
             
             # 4. Telemetry audit logs
             duration_ms = (time.time() - start_time) * 1000
