@@ -69,14 +69,12 @@ class TestMasterHttpDispatch(unittest.TestCase):
         # HTTP client must have been used
         mock_execute.assert_called_once()
 
-    @patch("shared.registry.agent_registry.AgentRegistry.get_agent")
-    def test_agent7_uses_legacy_dispatch(self, mock_get_agent):
+    @patch("shared.clients.agent_client.AgentServiceClient.execute")
+    def test_agent7_uses_http_dispatch(self, mock_execute):
         """
-        14. agent7 (Technical assessment) still executes temporarily via legacy registry fallback.
+        agent7 (Technical assessment) dispatches via AgentServiceClient over HTTP to port 8002.
         """
-        mock_agent_class = MagicMock()
-        mock_agent_instance = MagicMock()
-        mock_agent_instance.run.return_value = AgentResponse(
+        mock_execute.return_value = AgentResponse(
             execution_status="SUCCESS",
             generated_event="TechnicalScoreSubmitted",
             updated_state="TechnicalInterviewCompleted",
@@ -86,22 +84,32 @@ class TestMasterHttpDispatch(unittest.TestCase):
             suggested_action=None,
             metadata={}
         )
-        mock_agent_class.return_value = mock_agent_instance
-        mock_get_agent.return_value = mock_agent_class
 
         res = self.dispatcher.dispatch("agent7", self.context)
         self.assertEqual(res.execution_status, "SUCCESS")
-        mock_get_agent.assert_called_once_with("agent7")
-        mock_agent_instance.run.assert_called_once_with(self.context)
+        mock_execute.assert_called_once()
 
-    @patch("shared.registry.agent_registry.AgentRegistry.get_agent")
-    def test_agent8_uses_legacy_dispatch(self, mock_get_agent):
+    @patch("httpx.Client.post")
+    def test_agent7_service_down_raises_transport_error(self, mock_post):
         """
-        15. agent8 (HR evaluation) still executes temporarily via legacy registry fallback.
+        When Agent 7 HTTP service is unavailable, Dispatcher raises AgentTransportError without local fallback.
         """
-        mock_agent_class = MagicMock()
-        mock_agent_instance = MagicMock()
-        mock_agent_instance.run.return_value = AgentResponse(
+        import httpx
+        from shared.clients.agent_client import AgentTransportError
+        mock_post.side_effect = httpx.ConnectError("Connection refused on port 8002")
+
+        with self.assertRaises(AgentTransportError) as ctx:
+            self.dispatcher.dispatch("agent7", self.context)
+
+        self.assertIn("agent7", ctx.exception.agent)
+        self.assertEqual(ctx.exception.category, "CONNECTION_ERROR")
+
+    @patch("shared.clients.agent_client.AgentServiceClient.execute")
+    def test_agent8_uses_http_dispatch(self, mock_execute):
+        """
+        agent8 (HR assessment & re-ranking) dispatches via AgentServiceClient over HTTP to port 8003.
+        """
+        mock_execute.return_value = AgentResponse(
             execution_status="SUCCESS",
             generated_event="HRScoreSubmitted",
             updated_state="HRInterviewCompleted",
@@ -111,13 +119,25 @@ class TestMasterHttpDispatch(unittest.TestCase):
             suggested_action=None,
             metadata={}
         )
-        mock_agent_class.return_value = mock_agent_instance
-        mock_get_agent.return_value = mock_agent_class
 
         res = self.dispatcher.dispatch("agent8", self.context)
         self.assertEqual(res.execution_status, "SUCCESS")
-        mock_get_agent.assert_called_once_with("agent8")
-        mock_agent_instance.run.assert_called_once_with(self.context)
+        mock_execute.assert_called_once()
+
+    @patch("httpx.Client.post")
+    def test_agent8_service_down_raises_transport_error(self, mock_post):
+        """
+        When Agent 8 HTTP service is unavailable, Dispatcher raises AgentTransportError without local fallback.
+        """
+        import httpx
+        from shared.clients.agent_client import AgentTransportError
+        mock_post.side_effect = httpx.ConnectError("Connection refused on port 8003")
+
+        with self.assertRaises(AgentTransportError) as ctx:
+            self.dispatcher.dispatch("agent8", self.context)
+
+        self.assertIn("agent8", ctx.exception.agent)
+        self.assertEqual(ctx.exception.category, "CONNECTION_ERROR")
 
     @patch("shared.clients.agent_client.AgentServiceClient.execute")
     def test_agent6_transport_failure_propagates(self, mock_execute):

@@ -27,7 +27,7 @@ class Dispatcher:
         try:
             from shared.config.settings import settings
             from shared.clients.agent_client import AgentServiceClient
-            from shared.config.constants import AGENT_INVITATION
+            from shared.config.constants import AGENT_INVITATION, AGENT_TECHNICAL, AGENT_HR_RANKING
 
             # Check if agent is registered locally in registry (primarily for unit test environment)
             is_local = False
@@ -38,15 +38,28 @@ class Dispatcher:
                 pass
 
             if agent_name == AGENT_INVITATION and not is_local:
-                # 1. Initialize HTTP Client with settings config
+                # 1. Initialize HTTP Client with settings config for Agent 6
                 client = AgentServiceClient(
                     service_url=settings.agent6_service_url,
                     timeout=settings.agent_http_timeout_seconds
                 )
-                # 2. Invoke remote microservice endpoint
+                response = client.execute(context, agent_name=agent_name)
+            elif agent_name == AGENT_TECHNICAL and not is_local:
+                # 2. Initialize HTTP Client with settings config for Agent 7
+                client = AgentServiceClient(
+                    service_url=settings.agent7_service_url,
+                    timeout=settings.agent_http_timeout_seconds
+                )
+                response = client.execute(context, agent_name=agent_name)
+            elif agent_name == AGENT_HR_RANKING and not is_local:
+                # 3. Initialize HTTP Client with settings config for Agent 8
+                client = AgentServiceClient(
+                    service_url=settings.agent8_service_url,
+                    timeout=settings.agent_http_timeout_seconds
+                )
                 response = client.execute(context, agent_name=agent_name)
             else:
-                # Fall back to legacy registry dispatch (for mock Agent 7, Agent 8, or local unit tests)
+                # Fall back to local unit test execution if agent is registered locally
                 if not is_local:
                     agent_class = agent_registry.get_agent(agent_name)
                 agent_instance = agent_class()

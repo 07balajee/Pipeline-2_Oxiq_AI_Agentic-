@@ -50,7 +50,8 @@ TOOL_RESUME = "resume_mcp"
 TOOL_NOTIFICATION = "notification_mcp"
 
 # 5. Execution Parameters
-MAX_RETRY_ATTEMPTS = 3
+from shared.config.settings import settings
+MAX_RETRY_ATTEMPTS = settings.max_retry_attempts
 DEFAULT_EXPONENTIAL_BACKOFF_BASE = 2
-DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_TIMEOUT_SECONDS = int(settings.agent_http_timeout_seconds)
 PIPELINE_TRACE_VERSION = "1.0.0"

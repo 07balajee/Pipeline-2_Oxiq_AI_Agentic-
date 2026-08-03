@@ -61,6 +61,33 @@ class AuditLogger(BaseStructuredLogger):
         formatted = self._format_message(msg, trace_id, metadata)
         self.logger.info(formatted)
 
+    def log_distributed_telemetry(
+        self,
+        workflow_id: str,
+        correlation_id: str,
+        agent_name: str,
+        event: Optional[str],
+        state: Optional[str],
+        operation: str,
+        latency_ms: float,
+        retry_count: int = 0,
+        error_category: Optional[str] = None
+    ):
+        meta = {
+            "workflow_id": workflow_id,
+            "correlation_id": correlation_id,
+            "agent_name": agent_name,
+            "event": event,
+            "state": state,
+            "operation": operation,
+            "latency_ms": round(latency_ms, 2),
+            "retry_count": retry_count,
+            "error_category": error_category
+        }
+        msg = f"DISTRIBUTED TELEMETRY | Agent: {agent_name} | Op: {operation} | Latency: {latency_ms:.2f}ms"
+        formatted = self._format_message(msg, trace_id=correlation_id, metadata=meta)
+        self.logger.info(formatted)
+
 
 class ErrorLogger(BaseStructuredLogger):
     """

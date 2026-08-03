@@ -57,7 +57,7 @@ class TestMasterAPI(unittest.TestCase):
         """1. Health check returns status healthy."""
         resp = self.client.get("/v1/health")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"status": "healthy"})
+        self.assertEqual(resp.json()["status"], "healthy")
 
     @patch("agents.master.dispatcher.Dispatcher.dispatch")
     def test_valid_start_accepted_with_201(self, mock_dispatch):

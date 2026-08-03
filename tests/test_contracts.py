@@ -16,8 +16,11 @@ from shared.config.constants import (
     AGENT_HR_RANKING
 )
 
+from services.agent7_api.dependencies import initialize_dependencies
+
 class TestContracts(unittest.TestCase):
     def setUp(self):
+        initialize_dependencies()
         self.validator = ResponseValidator()
         self.router = Router()
         self.candidate_data = {
@@ -121,11 +124,13 @@ class TestContracts(unittest.TestCase):
         agent7 = TechnicalInterviewAgent()
         agent8 = HRInterviewAgent()
 
+        self.context.current_state = "TechnicalInterviewPending"
         resp7 = agent7.run(self.context)
         is_valid7, errors7 = self.validator.validate_response("agent7", resp7)
         self.assertTrue(is_valid7)
         self.assertEqual(len(errors7), 0)
 
+        self.context.current_state = "HRInterviewPending"
         resp8 = agent8.run(self.context)
         is_valid8, errors8 = self.validator.validate_response("agent8", resp8)
         self.assertTrue(is_valid8)

@@ -42,3 +42,13 @@ class WorkflowStatusResponse(BaseModel):
     timeline: List[Dict[str, Any]] = Field(default_factory=list)
     step_data: Dict[str, Any] = Field(default_factory=dict)
     failure: Optional[str] = None
+
+class DependencyHealth(BaseModel):
+    status: str
+    url: str
+    latency_ms: Optional[float] = None
+    error: Optional[str] = None
+
+class ReadinessResponse(BaseModel):
+    status: str
+    dependencies: Dict[str, DependencyHealth]

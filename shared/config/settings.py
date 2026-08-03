@@ -3,13 +3,26 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """
     Application settings and environment configurations.
+    Single authoritative source of truth for runtime config.
     Loads values from environment variables or a local .env file.
     """
-    # Core Service settings
+    # Environment & Service settings
+    environment: str = "development"
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "INFO"
     debug: bool = False
+
+    # Master & Distributed Worker Service URLs
+    master_service_url: str = "http://127.0.0.1:8000"
+    agent6_service_url: str = "http://127.0.0.1:8001"
+    agent7_service_url: str = "http://127.0.0.1:8002"
+    agent8_service_url: str = "http://127.0.0.1:8003"
+    
+    # Timeout & Retry Policies
+    agent_http_timeout_seconds: float = 30.0
+    health_http_timeout_seconds: float = 3.0
+    max_retry_attempts: int = 3
 
     # Databases (mocked for now)
     database_url: str = "postgresql://postgres:password@localhost:5432/oxiqai_recruitment_db"
@@ -28,13 +41,6 @@ class Settings(BaseSettings):
     smtp_username: str = "recruitment@oxiqai.com"
     smtp_password: str = "mock-password"
     smtp_from_email: str = "recruitment@oxiqai.com"
-
-    # Distributed Worker Agent Service URLs
-    agent6_service_url: str = "http://127.0.0.1:8001"
-    agent7_service_url: str = "http://127.0.0.1:8002"
-    agent8_service_url: str = "http://127.0.0.1:8003"
-    
-    agent_http_timeout_seconds: float = 30.0
 
     # Configuration loading rules
     model_config = SettingsConfigDict(

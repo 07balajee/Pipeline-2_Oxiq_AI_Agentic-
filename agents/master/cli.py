@@ -1,13 +1,9 @@
 import sys
 import json
 from shared.config.constants import (
-    AGENT_INVITATION,
-    AGENT_TECHNICAL,
-    AGENT_HR_RANKING
+    AGENT_INVITATION
 )
 from shared.registry.agent_registry import agent_registry
-from agents.agent7.agent import TechnicalInterviewAgent
-from agents.agent8.agent import HRInterviewAgent
 from agents.master.master_agent import MasterAgent
 from shared.events.base_event import BaseEvent
 from shared.events.event_bus import event_bus
@@ -22,11 +18,7 @@ from mcp.meet.client import MeetMCPClient
 from mcp.document.client import DocumentMCPClient
 from mcp.notification.client import NotificationMCPClient
 
-# 1. Register agents dynamically to the AgentRegistry
-agent_registry.register(AGENT_TECHNICAL, TechnicalInterviewAgent)
-agent_registry.register(AGENT_HR_RANKING, HRInterviewAgent)
-
-# 2. Register tools dynamically to the ToolRegistry
+# 1. Register tools dynamically to the ToolRegistry
 tool_registry.register("resume_mcp", ResumeMCPClient)
 tool_registry.register("database_mcp", DatabaseMCPClient)
 tool_registry.register("calendar_mcp", CalendarMCPClient)

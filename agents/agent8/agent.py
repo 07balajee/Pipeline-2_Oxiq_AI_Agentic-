@@ -1,45 +1,71 @@
 from shared.interfaces.agent import Agent
 from schemas.agent_response import AgentResponse
 from shared.context.workflow_context import WorkflowContext
-from shared.logger.logger import workflow_logger
-import time
+from agents.agent8.graph import compile_agent_graph
 
 class HRInterviewAgent(Agent):
     """
-    Dummy implementation of Agent 8: HR Interview & Candidate Re-ranking.
-    Provides dummy soft skill evaluations and updates cohort rankings.
+    HR Assessment & Pool Re-ranking Agent (Agent 8).
+    Evaluates candidate soft skills, updates cohort rankings,
+    and records results via internal LangGraph orchestration.
     """
+    def __init__(self):
+        self.graph = compile_agent_graph()
+
     def run(self, context: WorkflowContext) -> AgentResponse:
-        workflow_logger.info("Executing Agent 8 - HR Evaluator & Pool Re-ranking...", trace_id=context.workflow_id)
-        
-        # Simulate processing time
-        time.sleep(0.5)
-        
-        candidate_name = context.candidate.name
-        hr_scores = {
-            "culture_fit": 9.0,
-            "communication": 8.5,
-            "leadership_potential": 8.0
-        }
-        rank_index = 1  # Candidate ranks #1 in pool
-        recommendation = "PASS"
-        summary_msg = f"HR assessment completed. Candidate {candidate_name} ranked #{rank_index} in cohort."
-        
-        # Save evaluation details into step context
-        context.step_data["hr_scores"] = hr_scores
-        context.step_data["cohort_rank"] = rank_index
-        context.step_data["final_recommendation"] = recommendation
-        
-        return AgentResponse(
-            execution_status="SUCCESS",
-            generated_event="HRScoreSubmitted",
-            updated_state="HRInterviewCompleted",
-            summary=summary_msg,
-            metadata={
-                "hr_scores": hr_scores,
-                "rank_index": rank_index,
-                "recommendation": recommendation,
-                "agent_name": "agent8",
-                "execution_duration_ms": 500
+        """
+        Runs the HR evaluation & candidate re-ranking workflow using the stateless compiled LangGraph.
+        """
+        try:
+            context.metadata.pop("last_execution_error", None)
+            
+            # Construct initial graph state statelessly
+            initial_state = {
+                "workflow_context": context,
+                "candidate_context": None,
+                "job_context": None,
+                "hr_scores": None,
+                "rank_index": None,
+                "recommendation": None,
+                "db_hr_payload_prepared": None,
+                "retry_counts": {},
+                "last_error": None,
+                "failure_category": None,
+                "failed_operation": None,
+                "route_action": None,
+                "warnings": [],
+                "agent_response": None
             }
-        )
+            
+            # Invoke stateless graph execution
+            final_state = self.graph.invoke(initial_state)
+            
+            # Sync modifications back to the caller's context reference in-place
+            updated_ctx = final_state.get("workflow_context")
+            if updated_ctx:
+                context.step_data.update(updated_ctx.step_data)
+                context.metadata.update(updated_ctx.metadata)
+                context.current_state = updated_ctx.current_state
+                context.previous_state = updated_ctx.previous_state
+            
+            response = final_state.get("agent_response")
+            if not response:
+                response = AgentResponse(
+                    execution_status="FAILED",
+                    errors=["No response returned from Agent 8 graph orchestration."],
+                    summary="No response returned from Agent 8 graph orchestration."
+                )
+                
+            if response.execution_status != "SUCCESS":
+                err_msg = response.errors[0] if response.errors else "Unknown failure"
+                context.metadata["last_execution_error"] = err_msg
+                
+            return response
+            
+        except Exception as e:
+            context.metadata["last_execution_error"] = str(e)
+            return AgentResponse(
+                execution_status="FAILED",
+                errors=[str(e)],
+                summary=f"Execution exception inside Agent 8 evaluation: {str(e)}"
+            )

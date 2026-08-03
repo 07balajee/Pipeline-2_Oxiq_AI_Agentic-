@@ -6,9 +6,11 @@ from services.master_api.schemas import (
     WorkflowStartRequest, WorkflowStartResponse,
     WorkflowEventRequest, WorkflowEventResponse,
     WorkflowResumeRequest, WorkflowResumeResponse,
-    WorkflowStatusResponse
+    WorkflowStatusResponse, ReadinessResponse
 )
 from shared.events.base_event import BaseEvent
+import time
+import httpx
 import uuid
 
 router = APIRouter(prefix="/v1")
@@ -169,4 +171,66 @@ def get_workflow_status(
 
 @router.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "service": "master",
+        "version": "v1"
+    }
+
+@router.get("/readiness", response_model=ReadinessResponse)
+def readiness_check():
+    import time
+    import httpx
+    from shared.config.settings import settings
+    from services.master_api.schemas import DependencyHealth
+
+    workers = {
+        "agent6": f"{settings.agent6_service_url}/v1/agents/agent6/health",
+        "agent7": f"{settings.agent7_service_url}/v1/agents/agent7/health",
+        "agent8": f"{settings.agent8_service_url}/v1/agents/agent8/health",
+    }
+    
+    dependencies = {}
+    healthy_count = 0
+    
+    for agent_key, health_url in workers.items():
+        base_url = health_url.rsplit("/v1/", 1)[0]
+        start_t = time.time()
+        try:
+            with httpx.Client(timeout=settings.health_http_timeout_seconds) as client:
+                res = client.get(health_url)
+                latency_ms = round((time.time() - start_t) * 1000, 2)
+                if res.status_code == 200:
+                    dependencies[agent_key] = DependencyHealth(
+                        status="healthy",
+                        url=base_url,
+                        latency_ms=latency_ms
+                    )
+                    healthy_count += 1
+                else:
+                    dependencies[agent_key] = DependencyHealth(
+                        status="unhealthy",
+                        url=base_url,
+                        latency_ms=latency_ms,
+                        error=f"HTTP {res.status_code}"
+                    )
+        except Exception as e:
+            latency_ms = round((time.time() - start_t) * 1000, 2)
+            dependencies[agent_key] = DependencyHealth(
+                status="unreachable",
+                url=base_url,
+                latency_ms=latency_ms,
+                error=str(e)
+            )
+            
+    if healthy_count == len(workers):
+        overall_status = "ready"
+    elif healthy_count > 0:
+        overall_status = "degraded"
+    else:
+        overall_status = "degraded"
+        
+    return ReadinessResponse(
+        status=overall_status,
+        dependencies=dependencies
+    )
