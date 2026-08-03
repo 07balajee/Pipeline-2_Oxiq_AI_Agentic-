@@ -1,0 +1,359 @@
+# ---------------------------------------------------------------------------
+# Recruitment MCP - Capability Registry
+# ---------------------------------------------------------------------------
+# This file IS the product. It is a direct transcription of
+# "Recruitment Module - Agentic Pipeline / Per-Agent Database Mapping".
+#
+# Nothing about tables is hard-coded in Python. Add a table or an agent here
+# and the server picks it up on reload - the MCP tool surface never changes.
+# ---------------------------------------------------------------------------
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# TABLES - one entry per physical Supabase table.
+#   pk            : primary key column
+#   purpose       : one line, shown by list_capabilities (keep it short - this
+#                   is the only table text that ever enters an agent's context
+#                   without being explicitly requested)
+#   json_fallback : path to the legacy JSON twin, used for READS ONLY when the
+#                   DB is unreachable or the table is empty. null = no twin.
+#   json_arrays   : columns that are JSONB arrays and support op=append_json
+# ---------------------------------------------------------------------------
+tables:
+
+  requisitions:
+    pk: id
+    purpose: "Hiring requisitions and their 2-step approval chain."
+    json_fallback: null
+    json_arrays: [approval_chain]
+
+  jobs:
+    pk: id
+    purpose: "Published job openings (drives Open Positions KPI + careers portal)."
+    json_fallback: null
+
+  jobs_details:
+    pk: job_id
+    purpose: "JD body, requirements, posting channels and employment type for a job."
+    json_fallback: "data/jobs_details.json"
+    json_arrays: [requirements, channels]
+
+  candidates:
+    pk: id
+    purpose: "Candidate records. candidates.status is the spine of the pipeline."
+    json_fallback: null
+
+  candidate_details:
+    pk: id
+    purpose: "Resume insights, scores, ratings, notes and timeline per candidate."
+    json_fallback: "data/candidate_details.json"
+    json_arrays: [notes, timeline]
+
+  screening_results:
+    pk: id
+    purpose: "Why a candidate passed or failed screening, with score."
+    json_fallback: null
+
+  interviews:
+    pk: id
+    purpose: "Scheduled interview rows (candidate, interviewer, slot, status)."
+    json_fallback: null
+
+  interview_scores:
+    pk: id
+    purpose: "Per-round scores and ranks (Technical / HR), mode and meet link."
+    json_fallback: null
+
+  schedule_roster:
+    pk: id
+    purpose: "Interviewer availability roster. Table exists; JSON twin still in use."
+    json_fallback: "data/schedule_roster.json"
+
+  offers:
+    pk: id
+    purpose: "Offer records with salary and status."
+    json_fallback: null
+
+  offer_letters:
+    pk: id
+    purpose: "Generated offer letter content (JSON) and its status."
+    json_fallback: null
+
+  offer_links:
+    pk: id
+    purpose: "Tokenised public offer-view links and the candidate's response."
+    json_fallback: null
+
+  reselection_log:
+    pk: id
+    purpose: "Audit of next-best-fit replacements after an offer is declined."
+    json_fallback: null
+
+  background_verifications:
+    pk: id
+    purpose: "Identity / education / criminal check outcomes. JSON twin still in use."
+    json_fallback: "data/background_verifications.json"
+
+  document_collection:
+    pk: candidate_name
+    purpose: "Per-candidate document checklist and verification state."
+    json_fallback: "data/document_collection.json"
+    json_arrays: []
+
+  campus_drives:
+    pk: id
+    purpose: "Campus drives and the student list collected for each drive."
+    json_fallback: "data/campus_drives.json"
+    json_arrays: [candidates]
+
+# ---------------------------------------------------------------------------
+# TRANSITIONS - the three status ladders.
+# transition_status() is the ONLY way these columns may be written. Any move
+# not listed here is rejected with the legal set, so a confused agent self-
+# corrects instead of guessing.
+# ---------------------------------------------------------------------------
+transitions:
+
+  candidates:
+    column: status
+    initial: Applied
+    map:
+      Applied:    [Screening, Declined]
+      Screening:  [Interview, Declined]
+      Interview:  [Interview, Offer, Declined]   # self-loop = extra round
+      Offer:      [Hired, Declined]
+      Hired:      []
+      Declined:   []
+
+  requisitions:
+    column: status
+    initial: "Pending Approval"
+    map:
+      "Pending Approval": [Approved, Rejected]
+      Approved:           []
+      Rejected:           []
+
+  interviews:
+    column: status
+    initial: Scheduled
+    map:
+      Scheduled: [Completed, Cancelled]
+      Completed: []
+      Cancelled: []
+
+# ---------------------------------------------------------------------------
+# AGENTS - the read/write contract per agent, straight from the mapping doc.
+#
+#   read:  table -> [columns the agent may select]  ("*" = all)
+#   write: table -> {ops: [...], columns: [...]}
+#          ops are: insert | update | upsert | append_json | transition
+#          'transition' does not grant update on the status column - it grants
+#          use of transition_status(), and `statuses` narrows which target
+#          states this particular agent may drive.
+# ---------------------------------------------------------------------------
+agents:
+
+  agent_1:
+    name: "Manager provides Job Description"
+    read:
+      requisitions: ["*"]
+    write:
+      requisitions:
+        ops: [insert, update]
+        columns: [id, role_title, department, count, grade, estimated_ctc,
+                  requester, target_date, status, created_at, approval_chain,
+                  generated_jd, jd_generated]
+
+  agent_2:
+    name: "Need approval from Admin & HR"
+    read:
+      requisitions: [id, role_title, department, status, approval_chain]
+    write:
+      requisitions:
+        ops: [update, append_json, transition]
+        columns: [approval_chain]
+        statuses: [Approved, Rejected]
+
+  agent_3:
+    name: "Display on Job Opening & Generate JD"
+    read:
+      requisitions: [id, role_title, department, generated_jd, status]
+    write:
+      jobs:
+        ops: [insert]
+        columns: [id, title, department, location, status, created_at]
+      requisitions:
+        ops: [update]
+        columns: [job_id, jd_generated]
+      jobs_details:
+        ops: [insert, upsert]
+        columns: [job_id, description, requirements, channels, type]
+
+  agent_4:
+    name: "Post to Career Portal & Socials"
+    read:
+      jobs: [id, title, department, location, status]
+      jobs_details: [job_id, description, requirements, channels, type]
+    write:
+      jobs_details:
+        ops: [update, append_json]
+        columns: [channels]
+      candidates:
+        ops: [insert]
+        columns: [name, email, phone, resume_url, status, job_id, applied_at]
+
+  agent_5:
+    name: "Screening Round"
+    read:
+      candidates: [id, name, resume_url, status, job_id]
+      candidate_details: [id, ai_resume_insights, tech_score, comm_score, culture_score]
+    write:
+      candidates:
+        ops: [transition]
+        statuses: [Screening, Interview, Declined]
+      screening_results:
+        ops: [insert]
+        columns: [candidate_id, job_id, screening_score, shortlisted, reason, screened_at]
+
+  agent_6:
+    name: "Interview Invitation"
+    read:
+      candidates: [id, name, email, status, job_id]
+      jobs: [id, title]
+      schedule_roster: ["*"]
+    write:
+      interviews:
+        ops: [insert]
+        columns: [candidate_id, candidate_name, interviewer, scheduled_at, status, created_at]
+      schedule_roster:
+        ops: [insert, update, upsert]
+        columns: [task_name, time_slot, status]
+
+  agent_7:
+    name: "Online / Offline Interview + Score"
+    read:
+      interviews: [id, candidate_id, candidate_name, scheduled_at, status]
+    write:
+      interviews:
+        ops: [update, transition]
+        columns: [scheduled_at]
+        statuses: [Completed]
+      interview_scores:
+        ops: [insert]
+        columns: [candidate_id, round, score, mode, meet_link, evaluator, evaluated_at]
+      candidate_details:
+        ops: [upsert, append_json]
+        columns: [id, tech_score, timeline]
+
+  agent_8:
+    name: "HR Interview + Re-rank on score"
+    read:
+      interviews: [id, candidate_id, candidate_name, status]
+      interview_scores: ["*"]
+    write:
+      interview_scores:
+        ops: [insert, update]
+        columns: [candidate_id, round, score, rank, evaluator, evaluated_at]
+      candidate_details:
+        ops: [upsert, append_json]
+        columns: [id, comm_score, culture_score, tech_score, timeline]
+      candidates:
+        ops: [transition]
+        statuses: [Offer, Interview, Declined]
+
+  agent_9:
+    name: "Offer Letter Generator"
+    read:
+      candidates: [id, name, email, job_id]
+      jobs: [id, title, department]
+      offers: ["*"]
+    write:
+      offers:
+        ops: [insert]
+        columns: [candidate_id, candidate_name, salary, status, created_at]
+      offer_letters:
+        ops: [insert]
+        columns: [id, candidate_id, content, status, created_at]
+      offer_links:
+        ops: [insert]
+        columns: [token, offer_letter_id, candidate_name, status, created_at]
+
+  agent_10:
+    name: "Offer Letter Send"
+    read:
+      offer_letters: [id, candidate_id, content, status]
+      offer_links: [id, token, candidate_name, status]
+    write:
+      offer_letters:
+        ops: [update]
+        columns: [status]
+      offers:
+        ops: [update]
+        columns: [status]
+
+  agent_11:
+    name: "Review Acceptance / Rejection + Reselection"
+    read:
+      offer_links: [id, token, status, offer_letter_id, candidate_name]
+      candidates: [id, name, status, job_id]
+      interview_scores: ["*"]
+    write:
+      # the 4-table cascade is NOT done with write_resource - it is the
+      # record_offer_response() tool. This grant authorises that tool.
+      offer_links:
+        ops: [cascade]
+        columns: [status]
+      candidates:
+        ops: [transition]
+        statuses: [Hired, Declined, Offer]
+      reselection_log:
+        ops: [insert]
+        columns: [original_candidate_id, replacement_candidate_id, job_id, reason, created_at]
+
+  agent_12:
+    name: "Document / Background Verification"
+    read:
+      candidates: [id, name, email]
+      background_verifications: ["*"]
+      document_collection: ["*"]
+    write:
+      background_verifications:
+        ops: [insert, upsert]
+        columns: [candidate_name, identity_check, education_check, criminal_check,
+                  overall_status, created_at]
+      document_collection:
+        ops: [insert, upsert, update]
+        columns: [candidate_name, documents, overall_status, last_updated]
+
+  agent_13:
+    name: "Schedule Campus Drive"
+    read:
+      campus_drives: ["*"]
+    write:
+      campus_drives:
+        ops: [insert, update]
+        columns: [id, college_name, drive_date, department, target_hires, cutoff_gpa,
+                  ctc_offered, status, recruiter_lead, candidates, created_at]
+      requisitions:
+        ops: [insert]
+        columns: [id, role_title, department, count, grade, estimated_ctc, requester,
+                  target_date, status, created_at, approval_chain]
+
+  agent_14:
+    name: "Email College & Collect Student Data"
+    read:
+      campus_drives: [id, college_name, candidates]
+    write:
+      campus_drives:
+        ops: [append_json]
+        columns: [candidates]
+      candidates:
+        ops: [insert]
+        columns: [name, email, phone, status, job_id, applied_at]
+      jobs:
+        ops: [insert]
+        columns: [id, title, department, location, status, created_at]
+      candidate_details:
+        ops: [insert, upsert]
+        columns: [id, college, linkedin, graduation_year, priority, notes, timeline]

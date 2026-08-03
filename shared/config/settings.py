@@ -24,8 +24,12 @@ class Settings(BaseSettings):
     health_http_timeout_seconds: float = 3.0
     max_retry_attempts: int = 3
 
-    # Databases (mocked for now)
+    # Database & MCP Integration settings
     database_url: str = "postgresql://postgres:password@localhost:5432/oxiqai_recruitment_db"
+    mcp_db_mode: str = "mock"  # "mock" | "real"
+    mcp_db_server_path: str = "mcp_server_extracted/MCP_recruitementDB_Server/server.py"
+    mcp_db_transport: str = "stdio"  # "stdio" | "http"
+    mcp_db_http_url: str = "http://127.0.0.1:8010"
 
     # API credentials (mocked for now)
     anthropic_api_key: str = "mock-anthropic-key"
