@@ -1,0 +1,26 @@
+# Core Web and Validation
+fastapi>=0.110.0,<0.111.0
+uvicorn>=0.28.0,<0.29.0
+pydantic>=2.6.4,<3.0.0
+pydantic-settings>=2.2.1,<3.0.0
+python-dotenv>=1.0.1,<2.0.0
+
+# Model Context Protocol
+mcp>=0.1.0,<0.2.0
+
+# HTTP Clients
+httpx>=0.27.0,<0.28.0
+
+# Agent 8 LLM rationale drafting (optional - StubLLMRationaleMCP is the default)
+anthropic>=0.34,<1.0.0
+
+# Testing and Style (Optional but recommended for dev envs)
+pytest>=8.1.1,<9.0.0
+pytest-asyncio>=0.23.5,<0.24.0
+black>=24.2.0,<25.0.0
+isort>=5.13.2,<6.0.0
+mypy>=1.9.0,<2.0.0
+
+# Orchestration
+langgraph>=1.2.9,<2.0.0
+langchain-core>=1.4.9,<2.0.0
