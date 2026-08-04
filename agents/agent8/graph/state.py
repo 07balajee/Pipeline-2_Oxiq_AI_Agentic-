@@ -16,6 +16,16 @@ class Agent8GraphState(TypedDict):
     rank_index: Optional[int]
     recommendation: Optional[str]
     db_hr_payload_prepared: Optional[Dict[str, Any]]
+
+    # Populated only when a real hr_evaluation payload is supplied (see
+    # agents/agent8/scoring.py, confidence.py) - deterministic §8 formula
+    # outputs, additive alongside the legacy placeholder fields above so
+    # default-path behavior (no evaluation supplied) is unchanged.
+    hr_score_composite: Optional[int]
+    technical_score: Optional[float]
+    final_score: Optional[str]
+    confidence_score: Optional[float]
+    anomalies: Optional[List[Dict[str, Any]]]
     
     # Bounded operational retry tracking
     retry_counts: Dict[str, int]

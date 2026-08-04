@@ -107,11 +107,41 @@ class TestAgent8GraphIntegration(unittest.TestCase):
     def test_context_reference_sync(self):
         self.register_failable_tools()
         response = self.agent.run(self.context)
-        
+
         self.assertEqual(response.execution_status, "SUCCESS")
         self.assertTrue(self.context.step_data["hr_scores_committed"])
         self.assertIn("culture_fit", self.context.step_data["hr_scores"])
         self.assertEqual(self.context.step_data["cohort_rank"], 1)
+
+    def test_real_hr_evaluation_computes_deterministic_score(self):
+        # When a real hr_evaluation payload is supplied, evaluate_hr_node /
+        # calculate_ranking_node compute the actual spec §8 formula
+        # (agents/agent8/scoring.py) instead of the hardcoded placeholder.
+        # Ratings match the worked example pinned in test_agent8_scoring.py
+        # (hr_score composite -> 83).
+        self.register_failable_tools()
+        self.context.metadata["hr_evaluation"] = {
+            "communication_rating": 4, "culture_fit_rating": 5, "behaviour_rating": 4,
+            "motivation_rating": 4, "overall_comments": "Strong communicator.",
+            "evaluator": "H. Khan",
+        }
+        response = self.agent.run(self.context)
+
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["hr_score_composite"], 83)
+        self.assertEqual(response.metadata["technical_score"], 75.0)  # no technical_scores in step_data -> demo default
+        self.assertEqual(response.metadata["final_score"], "78.2")  # 0.6*75 + 0.4*83
+        self.assertEqual(response.metadata["rank_index"], 1)
+        self.assertEqual(response.metadata["recommendation"], "PASS")
+        self.assertIn("confidence_score", response.metadata)
+
+    def test_real_hr_evaluation_invalid_payload_fails_cleanly(self):
+        self.register_failable_tools()
+        self.context.metadata["hr_evaluation"] = {"communication_rating": 4}  # missing required ratings
+        response = self.agent.run(self.context)
+
+        self.assertEqual(response.execution_status, "FAILED")
+        self.assertEqual(response.metadata.get("failed_operation"), "hr_evaluation")
 
 if __name__ == "__main__":
     unittest.main()
