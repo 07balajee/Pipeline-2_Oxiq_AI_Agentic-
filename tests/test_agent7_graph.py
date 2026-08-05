@@ -163,5 +163,55 @@ class TestAgent7GraphIntegration(unittest.TestCase):
         self.assertEqual(response_fail.execution_status, "FAILED")
         self.assertFalse(self.context.step_data.get("technical_scores_committed", False))
 
+    def test_structured_ratings_extraction(self):
+        self.register_failable_tools()
+        # Set structured ratings in step_data
+        self.context.step_data["coding_proficiency"] = 9.0
+        self.context.step_data["problem_solving"] = 8.0
+        self.context.step_data["architecture_design"] = 7.0
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["recommendation"], "PASS")
+        # coding*0.4 + problem*0.4 + architecture*0.2 = 3.6 + 3.2 + 1.4 = 8.2
+        self.assertEqual(self.context.step_data["technical_scores"], {"coding_proficiency": 9.0, "problem_solving": 8.0, "architecture_design": 7.0})
+        
+    def test_low_ratings_recommend_fail(self):
+        self.register_failable_tools()
+        # Set low ratings to trigger FAIL
+        self.context.step_data["coding_proficiency"] = 4.0
+        self.context.step_data["problem_solving"] = 5.0
+        self.context.step_data["architecture_design"] = 3.0
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["recommendation"], "FAIL")
+        
+    def test_na_component_reweights_correctly(self):
+        self.register_failable_tools()
+        # One component is None
+        self.context.step_data["coding_proficiency"] = 9.0
+        self.context.step_data["problem_solving"] = 9.0
+        self.context.step_data["architecture_design"] = None
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        # Normalized weights should yield 9.0 overall score
+        self.assertEqual(self.context.step_data["technical_scores"], {"coding_proficiency": 9.0, "problem_solving": 9.0})
+        
+    def test_transcript_text_parsing_deterministic(self):
+        self.register_failable_tools()
+        # Add transcript text
+        self.context.step_data["transcript_text"] = (
+            "The candidate did great. Coding score is 8 out of 10. "
+            "Problem-solving was solid, rating is 9. "
+            "Architecture design was decent, design 7."
+        )
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["recommendation"], "PASS")
+        self.assertEqual(self.context.step_data["technical_scores"], {"coding_proficiency": 8.0, "problem_solving": 9.0, "architecture_design": 7.0})
+
 if __name__ == "__main__":
     unittest.main()

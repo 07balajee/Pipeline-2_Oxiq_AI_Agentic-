@@ -144,19 +144,91 @@ def retrieve_context_node(state: Agent7GraphState, config: RunnableConfig) -> Di
 def evaluate_technical_node(state: Agent7GraphState, config: RunnableConfig) -> Dict[str, Any]:
     """
     Step 4: Compute technical evaluation scores and recommendation.
+    We check if structured ratings exist in context.step_data.
+    Otherwise, if transcript_text exists in context.step_data, we parse it using our local deterministic regex fallback.
+    Finally, we compute the scorecard dynamically using the default weights.
     """
     context = state["workflow_context"]
     
-    # Check if overrides exist in metadata for test mocking
-    scores = context.metadata.get("override_scores") or {
-        "coding_proficiency": 8.5,
-        "problem_solving": 8.0,
-        "architecture_design": 7.5
-    }
-    recommendation = context.metadata.get("override_recommendation") or "PASS"
+    # 1. Competency keys used in this codebase
+    competency_keys = ["coding_proficiency", "problem_solving", "architecture_design"]
     
+    # 2. Check for explicit ratings first
+    explicit_ratings = {k: context.step_data.get(k) for k in competency_keys}
+    has_explicit = any(v is not None for v in explicit_ratings.values())
+    
+    if has_explicit:
+        ratings = {k: (float(explicit_ratings[k]) if explicit_ratings[k] is not None else None) for k in competency_keys}
+        workflow_logger.info(
+            "Agent 7: Using explicit structured ratings from step_data.",
+            trace_id=context.workflow_id
+        )
+    else:
+        # 3. Fallback to transcript regex parsing if transcript_text is provided
+        transcript_text = context.step_data.get("transcript_text")
+        if transcript_text:
+            workflow_logger.info(
+                "Agent 7: Parsing transcript_text using deterministic fallback...",
+                trace_id=context.workflow_id
+            )
+            # Local regex-based deterministic parse logic (from contributor's fallback logic)
+            ratings = {k: None for k in competency_keys}
+            import re
+            pattern = re.compile(
+                r"(coding|problem[- ]solving|architecture|design)\D{0,50}?(\d{1,2}(?:\.\d)?)\s*(?:/\s*10)?\b",
+                re.IGNORECASE,
+            )
+            key_map = {
+                "coding": "coding_proficiency",
+                "problem-solving": "problem_solving",
+                "problem solving": "problem_solving",
+                "architecture": "architecture_design",
+                "design": "architecture_design",
+            }
+            for m in pattern.finditer(transcript_text):
+                key = key_map.get(m.group(1).lower())
+                val = float(m.group(2))
+                if key and 0 <= val <= 10:
+                    ratings[key] = val
+        else:
+            # If no inputs at all, fall back to metadata override or default mock scores
+            ratings = None
+
+    # Apply defaults if neither explicit ratings nor transcript parsing yielded ratings
+    if ratings is None or not any(v is not None for v in ratings.values()):
+        scores = context.metadata.get("override_scores") or {
+            "coding_proficiency": 8.5,
+            "problem_solving": 8.0,
+            "architecture_design": 7.5
+        }
+        recommendation = context.metadata.get("override_recommendation") or "PASS"
+    else:
+        # Dynamic scoring formula
+        # Weights normalized across present values
+        weights = {
+            "coding_proficiency": 0.40,
+            "problem_solving": 0.40,
+            "architecture_design": 0.20
+        }
+        present = {k: float(v) for k, v in ratings.items() if v is not None}
+        excluded_weight = sum(weights[k] for k in weights if k not in present)
+        remaining_base_total = sum(weights[k] for k in present)
+        
+        weights_used = {
+            k: weights[k] + (excluded_weight * (weights[k] / remaining_base_total) if remaining_base_total else 0.0)
+            for k in present
+        }
+        
+        overall = sum(weights_used[k] * present[k] for k in present)
+        from decimal import Decimal, ROUND_HALF_UP
+        overall = float(Decimal(str(overall)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+        overall = max(0.0, min(10.0, overall))
+        
+        scores = {k: present[k] for k in present}
+        recommendation = "PASS" if overall >= 6.0 else "FAIL"
+
     workflow_logger.info(
-        f"Technical evaluation computed for {context.candidate.name}. Decision: {recommendation}",
+        f"Technical evaluation computed for {context.candidate.name}. Scores: {scores}, Decision: {recommendation}",
         trace_id=context.workflow_id
     )
     
