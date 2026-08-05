@@ -219,7 +219,7 @@ def commit_database_node(state: Agent7GraphState, config: RunnableConfig) -> Dic
     
     commit_resp = db_tool().execute(
         action="commit",
-        payload=state["db_scorecard_prepared"],
+        prepared_payload=state["db_scorecard_prepared"],
         workflow_id=context.workflow_id,
         metadata=context.metadata
     )
