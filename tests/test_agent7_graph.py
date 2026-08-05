@@ -113,5 +113,105 @@ class TestAgent7GraphIntegration(unittest.TestCase):
         self.assertTrue(self.context.step_data["technical_scores_committed"])
         self.assertIn("coding_proficiency", self.context.step_data["technical_scores"])
 
+    def test_db_commit_parameters_validation(self):
+        self.register_failable_tools()
+        from mcp.database.client import DatabaseMCPClient
+
+        calls = []
+        original_execute = DatabaseMCPClient.execute
+
+        def mock_execute(instance, action, *args, **kwargs):
+            calls.append((action, kwargs))
+            return original_execute(instance, action, *args, **kwargs)
+
+        with patch.object(DatabaseMCPClient, "execute", mock_execute):
+            response = self.agent.run(self.context)
+
+        self.assertEqual(response.execution_status, "SUCCESS")
+
+        # Find the commit call
+        commit_calls = [c for c in calls if c[0] == "commit"]
+        self.assertEqual(len(commit_calls), 1)
+
+        action, kwargs = commit_calls[0]
+        self.assertIn("prepared_payload", kwargs)
+        prepared_payload = kwargs["prepared_payload"]
+        self.assertIsNotNone(prepared_payload)
+        self.assertNotEqual(prepared_payload, {})
+        self.assertEqual(prepared_payload["candidate_id"], "CAND-001")
+        self.assertEqual(prepared_payload["workflow_id"], "wf-test-agent7-123")
+        self.assertEqual(prepared_payload["recommendation"], "PASS")
+        self.assertIn("technical_scores", prepared_payload)
+        self.assertEqual(
+            prepared_payload["technical_scores"],
+            {"coding_proficiency": 8.5, "problem_solving": 8.0, "architecture_design": 7.5}
+        )
+
+        # Verify checkpoint is marked after/during successful commit
+        self.assertTrue(self.context.step_data.get("technical_scores_committed"))
+
+        # Verify checkpoint is NOT marked if the commit fails
+        # Reset context
+        self.context = WorkflowContext(
+            workflow_id="wf-test-agent7-123-fail",
+            candidate=self.candidate_ctx,
+            current_state="TechnicalInterviewPending",
+            previous_state="InterviewScheduled"
+        )
+        self.context.metadata["simulate_db_write_failure"] = True
+        response_fail = self.agent.run(self.context)
+        self.assertEqual(response_fail.execution_status, "FAILED")
+        self.assertFalse(self.context.step_data.get("technical_scores_committed", False))
+
+    def test_structured_ratings_extraction(self):
+        self.register_failable_tools()
+        # Set structured ratings in step_data
+        self.context.step_data["coding_proficiency"] = 9.0
+        self.context.step_data["problem_solving"] = 8.0
+        self.context.step_data["architecture_design"] = 7.0
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["recommendation"], "PASS")
+        # coding*0.4 + problem*0.4 + architecture*0.2 = 3.6 + 3.2 + 1.4 = 8.2
+        self.assertEqual(self.context.step_data["technical_scores"], {"coding_proficiency": 9.0, "problem_solving": 8.0, "architecture_design": 7.0})
+        
+    def test_low_ratings_recommend_fail(self):
+        self.register_failable_tools()
+        # Set low ratings to trigger FAIL
+        self.context.step_data["coding_proficiency"] = 4.0
+        self.context.step_data["problem_solving"] = 5.0
+        self.context.step_data["architecture_design"] = 3.0
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["recommendation"], "FAIL")
+        
+    def test_na_component_reweights_correctly(self):
+        self.register_failable_tools()
+        # One component is None
+        self.context.step_data["coding_proficiency"] = 9.0
+        self.context.step_data["problem_solving"] = 9.0
+        self.context.step_data["architecture_design"] = None
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        # Normalized weights should yield 9.0 overall score
+        self.assertEqual(self.context.step_data["technical_scores"], {"coding_proficiency": 9.0, "problem_solving": 9.0})
+        
+    def test_transcript_text_parsing_deterministic(self):
+        self.register_failable_tools()
+        # Add transcript text
+        self.context.step_data["transcript_text"] = (
+            "The candidate did great. Coding score is 8 out of 10. "
+            "Problem-solving was solid, rating is 9. "
+            "Architecture design was decent, design 7."
+        )
+        
+        response = self.agent.run(self.context)
+        self.assertEqual(response.execution_status, "SUCCESS")
+        self.assertEqual(response.metadata["recommendation"], "PASS")
+        self.assertEqual(self.context.step_data["technical_scores"], {"coding_proficiency": 8.0, "problem_solving": 9.0, "architecture_design": 7.0})
+
 if __name__ == "__main__":
     unittest.main()
