@@ -2,7 +2,6 @@ from typing import Dict, Any
 from langchain_core.runnables import RunnableConfig
 from shared.context.workflow_context import WorkflowContext
 from schemas.agent_response import AgentResponse
-from shared.registry.tool_registry import tool_registry
 from shared.logger.logger import workflow_logger, error_logger
 from shared.config.constants import (
     STATE_HR_INTERVIEW_PENDING,
@@ -12,6 +11,7 @@ from shared.config.constants import (
 )
 from agents.agent8.graph.state import Agent8GraphState
 from agents.agent8 import scoring, confidence
+from agents.agent8.tools import Agent8ToolsAdapter
 
 def intake_node(state: Agent8GraphState, config: RunnableConfig) -> Dict[str, Any]:
     """
@@ -82,35 +82,14 @@ def retrieve_context_node(state: Agent8GraphState, config: RunnableConfig) -> Di
     retry_counts = dict(state.get("retry_counts") or {})
     cand_id = context.candidate.candidate_id
     job_id = context.candidate.job_id
-    
-    try:
-        db_tool = tool_registry.get_tool("database_mcp")
-    except KeyError:
-        return {
-            "last_error": "DatabaseMCP not registered in ToolRegistry",
-            "failure_category": "TERMINAL",
-            "failed_operation": "context_retrieval",
-            "route_action": None
-        }
-        
+
     # Save/restore metadata retry_count to avoid clobbering Master workflow retry counter
     _saved_retry = context.metadata.get("retry_count", 0)
     context.metadata["retry_count"] = retry_counts.get("context_retrieval", 0)
-    
-    cand_resp = db_tool().execute(
-        action="read_candidate",
-        candidate_id=cand_id,
-        workflow_id=context.workflow_id,
-        metadata=context.metadata
-    )
-    
-    job_resp = db_tool().execute(
-        action="read_job",
-        job_id=job_id,
-        workflow_id=context.workflow_id,
-        metadata=context.metadata
-    )
-    
+
+    cand_resp = Agent8ToolsAdapter.read_candidate(cand_id, context.workflow_id, context.metadata)
+    job_resp = Agent8ToolsAdapter.read_job(job_id, context.workflow_id, context.metadata)
+
     context.metadata["retry_count"] = _saved_retry
     
     if cand_resp.status != "SUCCESS" or job_resp.status != "SUCCESS":
@@ -322,26 +301,13 @@ def commit_database_node(state: Agent8GraphState, config: RunnableConfig) -> Dic
             "route_action": None
         }
         
-    try:
-        db_tool = tool_registry.get_tool("database_mcp")
-    except KeyError:
-        return {
-            "last_error": "DatabaseMCP not registered in ToolRegistry",
-            "failure_category": "TERMINAL",
-            "failed_operation": "database_commit",
-            "route_action": None
-        }
-        
     _saved_retry = context.metadata.get("retry_count", 0)
     context.metadata["retry_count"] = retry_counts.get("database_commit", 0)
-    
-    commit_resp = db_tool().execute(
-        action="commit",
-        payload=state["db_hr_payload_prepared"],
-        workflow_id=context.workflow_id,
-        metadata=context.metadata
+
+    commit_resp = Agent8ToolsAdapter.commit_hr_results(
+        state["db_hr_payload_prepared"], context.workflow_id, context.metadata
     )
-    
+
     context.metadata["retry_count"] = _saved_retry
     
     if commit_resp.status != "SUCCESS":

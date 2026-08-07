@@ -2,7 +2,6 @@ from shared.registry.tool_registry import tool_registry
 from shared.config.settings import settings
 from mcp.database.client import DatabaseMCPClient
 from mcp.database.real_client import RealRecruitmentDBMCPClient
-from mcp.resume.client import ResumeMCPClient
 from agents.agent8.agent import HRInterviewAgent
 
 def initialize_dependencies():
@@ -15,7 +14,6 @@ def initialize_dependencies():
         _register_if_absent("database_mcp", db_cls)
     else:
         _register_if_absent("database_mcp", DatabaseMCPClient)
-    _register_if_absent("resume_mcp", ResumeMCPClient)
 
 def _register_if_absent(tool_name: str, tool_class):
     try:
