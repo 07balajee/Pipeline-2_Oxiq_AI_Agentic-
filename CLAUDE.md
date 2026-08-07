@@ -314,14 +314,13 @@ PYTHONPATH=. python3 scripts/verify_real_db_mcp.py
 
 `CLAUDE.md` is an operational index and high-level memory file. For detailed specifications, refer to:
 
-- `project_context.md`: Project architecture freeze status & phase history.
 - `architecture.md`: Full architectural breakdown & system topologies.
+- `master_agent.md`: Master orchestrator internals — routing, retry/fallback, HITL.
 - `agent_contracts.md`: Complete Pydantic schemas, ownership matrix, and payload details.
 - `api_contracts.md`: REST API endpoint specification.
 - `workflow_contracts.md`: State machine transitions, event definitions, and transport error mappings.
-- `development_rules.md`: Detailed architectural rules and coding constraints.
-- `folder_structure.md`: Complete repository layout index.
-- `team_roles.md`: Developer ownership boundaries, branch strategies, and PR workflow.
+- `database_contracts.md`: Database CRUD maps and transaction rules.
+- `mcp_contracts.md`: MCP tool input/output schemas.
 
 ---
 
